@@ -54,10 +54,12 @@ static void file_section_callback(const conf_section_t *section, void *arg) {
 	session_t *session = *((session_t **) arg);
 	static int y = 1;
 
-	unsigned int e, c, r, group, reverse, *v, this_y;
+	unsigned int e, c, r, group, reverse, *v, this_y, loop;
 	file_t *f;
 	double speed;
 	char *path, *buf;
+
+        double msec, bpm;
 
 	conf_pair_t *pair = NULL;
 
@@ -73,6 +75,7 @@ static void file_section_callback(const conf_section_t *section, void *arg) {
 	c       = 0;
 	reverse = 0;
 	speed   = 1.0;
+        loop  = 0;
 
 	while( (e = conf_getvar(section, &pair)) ) {
 		switch( e ) {
@@ -102,6 +105,11 @@ static void file_section_callback(const conf_section_t *section, void *arg) {
 
 		case 'y':
 			v = &this_y;
+                        break;
+
+                case 'l':
+                        loop = 1;
+                        continue;
 		}
 
 		*v = (unsigned int) strtol(pair->value, NULL, 10);
@@ -148,6 +156,14 @@ static void file_section_callback(const conf_section_t *section, void *arg) {
 		y += r;
 	} else
 		f->y = this_y;
+
+        if (loop) {
+          msec = 1000*f->length / f->sample_rate;
+          bpm = 8 * (60.0 * 1000) / msec;
+
+          printf("adjust speed to %lf @ %.2f bpm to loop at session bpm of %.2f\n", session->bpm/bpm, bpm, session->bpm);
+          f->speed = session->bpm/bpm;
+        }
 
 	return;
 
@@ -287,6 +303,7 @@ int session_load(const char *path) {
 		{"reverse", NULL,   BOOL, 'v'},
 		{"speed",   NULL, DOUBLE, 's'},
 		{"y",       NULL,    INT, 'y'},
+		{"loop",       NULL, BOOL, 'l'},
 		{NULL}
 	};
 
