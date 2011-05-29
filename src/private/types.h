@@ -161,6 +161,11 @@ struct file {
 	quantize_callback_t quantize_cb;
 	r_monome_output_callback_t monome_out_cb;
 	r_monome_callback_t monome_in_cb;
+
+  int setting_loop;
+  int looping;
+  int loop_start;
+  int loop_end;
 };
 
 /**

@@ -151,7 +151,7 @@ static void file_monome_out(file_t *self, r_monome_t *monome) {
 			               !!self->group->active_loop);
 		}
 
-		if( pos.y != self->monome_pos_old.y ) 
+		if( pos.y != self->monome_pos_old.y )
 			monome_led_row(monome->dev, 0, self->y + self->monome_pos_old.y, 2, row);
 
 		MONOME_POS_CPY(&self->monome_pos_old, &pos);
@@ -176,7 +176,7 @@ static void file_monome_out(file_t *self, r_monome_t *monome) {
 
 static void file_monome_in(r_monome_t *monome, uint_t x, uint_t y, uint_t type, void *user_arg) {
 	file_t *self = FILE_T(user_arg);
-	unsigned int cols;
+	unsigned int cols, x_frame;
 
 	r_monome_position_t pos = {x, y - self->y};
 
@@ -189,15 +189,27 @@ static void file_monome_in(r_monome_t *monome, uint_t x, uint_t y, uint_t type, 
 		if( x > cols - 1 )
 			return;
 
-		self->new_offset =
-			calculate_play_pos(self->file_length, pos.x, pos.y,
-		                       (self->play_direction == FILE_PLAY_DIRECTION_REVERSE),
-		                       self->row_span, cols);
+                x_frame = calculate_play_pos(self->file_length, pos.x, pos.y,
+                                 (self->play_direction == FILE_PLAY_DIRECTION_REVERSE),
+                                             self->row_span, cols);
+          if (!self->setting_loop) {
+            self->loop_start = x_frame;
+            self->looping = 0;
+            self->setting_loop = 1;
 
-		file_on_quantize(self, file_seek);
-		break;
+            self->new_offset = x_frame;
 
+            file_on_quantize(self, file_seek);
+
+          } else {
+            self->looping = 1;
+            self->setting_loop = 0;
+            self->loop_end = x_frame;
+            printf("loop from %d to %d (%d)\n", self->loop_start, self->loop_end, self->loop_end - self->loop_start);
+          }
+          break;
 	case MONOME_BUTTON_UP:
+          self->setting_loop = 0;
 		break;
 	}
 }
@@ -210,6 +222,12 @@ static void file_init(file_t *self) {
 	self->process_cb     = file_process;
 	self->monome_out_cb  = file_monome_out;
 	self->monome_in_cb   = file_monome_in;
+
+        self->setting_loop = 0;
+        self->looping = 0;
+        self->loop_start = 0;
+        self->loop_end = 0;
+
 }
 
 void file_free(file_t *self) {
@@ -263,7 +281,13 @@ void file_set_play_pos(file_t *self, sf_count_t p) {
 	if( p < 0 )
 		p = self->file_length - (abs(p) % self->file_length);
 
-	self->play_offset = p;
+        if (self->looping &&
+            (((self->loop_start < self->loop_end) && p > self->loop_end) ||
+             (p > self->loop_end && p < self->loop_start)))
+          {
+          self->play_offset = self->loop_start;
+        } else
+          self->play_offset = p;
 }
 
 void file_inc_play_pos(file_t *self, sf_count_t delta) {
