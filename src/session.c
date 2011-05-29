@@ -56,7 +56,7 @@ static void file_section_callback(const conf_section_t *section, void *arg) {
 
 	unsigned int e, c, r, group, reverse, *v, this_y, loop;
 	file_t *f;
-	double speed;
+	double speed, volume;
 	char *path, *buf;
 
         double msec, bpm;
@@ -75,6 +75,7 @@ static void file_section_callback(const conf_section_t *section, void *arg) {
 	c       = 0;
 	reverse = 0;
 	speed   = 1.0;
+	volume   = 1.0;
         loop  = 0;
 
 	while( (e = conf_getvar(section, &pair)) ) {
@@ -89,6 +90,10 @@ static void file_section_callback(const conf_section_t *section, void *arg) {
 
 		case 's': /* speed */
 			speed = strtod(pair->value, NULL);
+			continue;
+
+		case 'a': /* volume */
+			volume = strtod(pair->value, NULL);
 			continue;
 
 		case 'g': /* group */
@@ -144,6 +149,7 @@ static void file_section_callback(const conf_section_t *section, void *arg) {
 
 	f->path = buf;
 	f->speed = speed;
+	f->volume = volume;
 	f->row_span = r;
 	f->columns  = (c) ? ((c - 1) & 0xF) + 1 : session->cols;
 	f->group = &state.groups[group - 1];
@@ -304,6 +310,7 @@ int session_load(const char *path) {
 		{"speed",   NULL, DOUBLE, 's'},
 		{"y",       NULL,    INT, 'y'},
 		{"loop",       NULL, BOOL, 'l'},
+		{"volume",       NULL, BOOL, 'a'},
 		{NULL}
 	};
 
