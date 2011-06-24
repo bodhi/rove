@@ -67,44 +67,28 @@ static void calculate_monome_pos(sf_count_t length, sf_count_t position, uint_t 
 }
 
 static void file_process(file_t *self, jack_default_audio_sample_t **buffers, int channels, jack_nframes_t nframes, jack_nframes_t sample_rate) {
-	sf_count_t i, o;
+  sf_count_t i, o, j;
 
 #ifdef HAVE_SRC
-	float b[2];
+//	float b[2];
 	double speed;
 
 	speed = (sample_rate / (double) self->sample_rate) * (1 / self->speed);
 
 	if( self->speed != 1 || self->sample_rate != sample_rate ) {
-		if( self->channels == 1 ) {
-			for( i = 0; i < nframes; i++ ) {
-				src_callback_read(self->src, speed, 1, b);
-				buffers[0][i] += b[0] * self->volume;
-				buffers[1][i] += b[0] * self->volume;
-			}
-		} else {
-			for( i = 0; i < nframes; i++ ) {
-				src_callback_read(self->src, speed, 1, b);
-				buffers[0][i] += b[0] * self->volume;
-				buffers[1][i] += b[1] * self->volume;
-			}
+		for( i = 0; i < nframes; i++ ) {
+			src_callback_read(self->src, speed, 1, self->out_frame);
+			buffers[0][i] += self->out_frame[0] * self->volume;
+			buffers[1][i] += self->out_frame[1] * self->volume;
 		}
 	} else {
 #endif
-		if( self->channels == 1 ) {
-			for( i = 0; i < nframes; i++ ) {
-				o = file_get_play_pos(self);
-				buffers[0][i] += self->file_data[o]   * self->volume;
-				buffers[1][i] += self->file_data[o]   * self->volume;
-				file_inc_play_pos(self, 1);
-			}
-		} else {
-			for( i = 0; i < nframes; i++ ) {
-				o = file_get_play_pos(self);
-				buffers[0][i] += self->file_data[o]   * self->volume;
-				buffers[1][i] += self->file_data[++o] * self->volume;
-				file_inc_play_pos(self, 1);
-			}
+		for( i = 0; i < nframes; i++ ) {
+			o = file_get_play_pos(self);
+                              for (j = 0; j < self->channels; ++j) {
+                                 buffers[j][i] += self->deinterleaved_data[j][o]   * self->volume;
+                               }
+                        file_inc_play_pos(self, 1);
 		}
 #ifdef HAVE_SRC
 	}
@@ -120,7 +104,10 @@ static long file_src_callback(void *cb_data, float **data) {
 		return 0;
 
 	o = self->play_offset;
-	*data = self->file_data + (o * self->channels);
+//	*data = self->file_data + (o * self->channels);
+        self->in_frame[0] = self->deinterleaved_data[0][o];
+        self->in_frame[1] = self->deinterleaved_data[1][o];
+        *data = self->in_frame;
 	file_inc_play_pos(self, 1);
 
 	return 1;
@@ -231,6 +218,13 @@ static void file_init(file_t *self) {
 }
 
 void file_free(file_t *self) {
+  int i;
+  for (i = 0; i < self->channels; ++i) {
+    free(self->deinterleaved_data[i]);
+  }
+  free(self->deinterleaved_data);
+  free(self->in_frame);
+  free(self->out_frame);
 	free(self->file_data);
 	free(self);
 }
@@ -239,6 +233,7 @@ file_t *file_new_from_path(const char *path) {
 #ifdef HAVE_SRC
 	int err;
 #endif
+        int i, j;
 	file_t *self;
 	SF_INFO info;
 	SNDFILE *snd;
@@ -268,6 +263,18 @@ file_t *file_new_from_path(const char *path) {
 		file_free(self);
 		self = NULL;
 	}
+
+        self->in_frame = calloc(sizeof(float), info.channels);
+        self->out_frame = calloc(sizeof(float), info.channels);
+	self->deinterleaved_data   = calloc(sizeof(float *), info.channels);
+       for (j = 0; j < info.channels; ++j) {
+         self->deinterleaved_data[j]   = calloc(sizeof(float), info.frames);
+       }
+        for (i = 0; i < info.frames; ++i) {
+          for (j = 0; j < info.channels; ++j) {
+            self->deinterleaved_data[j][i] = self->file_data[i * info.channels + j];
+          }
+        }
 
 	sf_close(snd);
 

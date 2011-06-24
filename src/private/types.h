@@ -140,7 +140,10 @@ struct file {
 #endif
 	double speed;
 
+	float **deinterleaved_data;
 	float *file_data;
+	float *out_frame;
+	float *in_frame;
 
 	int y;
 	int row_span;
