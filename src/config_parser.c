@@ -148,6 +148,15 @@ static void close_block(conf_section_t *s, conf_pair_t *p) {
 	}
 }
 
+static char *strndup(const char *in, size_t len) {
+  int i;
+  char *ret = malloc((len + 1) * sizeof(char));
+  for (i = 0; i < len; ++i) {
+    ret[i] = in[i];
+  }
+  ret[i] = 0;
+  return ret;
+}
 
 static int config_parse(const char *path, conf_section_t *sections, int cd) {
 	char buf[BUFLEN + 1], vbuf[BUFLEN + 1], c;

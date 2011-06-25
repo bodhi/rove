@@ -30,6 +30,8 @@
 #include <samplerate.h>
 #endif
 
+#include <rubberband/rubberband-c.h>
+
 #include "list.h"
 
 #define HANDLER_T(x) ((r_monome_handler_t *) x)
@@ -169,6 +171,8 @@ struct file {
   int looping;
   int loop_start;
   int loop_end;
+
+  RubberBandState rbState;
 };
 
 /**

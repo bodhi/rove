@@ -66,16 +66,36 @@ static void calculate_monome_pos(sf_count_t length, sf_count_t position, uint_t 
 	pos->y = y;
 }
 
+static void file_rb_read(file_t *self, float buffer[2]) {
+  float a = 0, b = 0;
+  float *channels[2];
+  channels[0] = &a;
+  channels[1] = &b;
+
+//  sf_count_t o;
+    int available = rubberband_available(self->rbState);
+  printf("%d samples available\n", available);
+//  while (available == 0) {
+//    printf("processing a sample\n");
+//    o = file_get_play_pos(self);
+//    rubberband_process(self->rbState, (const float **)&(self->file_data[o]), 1, 0);
+//  }
+  /*size_t read = */rubberband_retrieve(self->rbState, channels, 1);
+  buffer[0] = a;
+  buffer[1] = b;
+//  printf("read %ld samples\n", read);
+}
+
 static void file_process(file_t *self, jack_default_audio_sample_t **buffers, int channels, jack_nframes_t nframes, jack_nframes_t sample_rate) {
   sf_count_t i, o, j;
 
 #ifdef HAVE_SRC
-//	float b[2];
+	float b[2];
 	double speed;
 
 	speed = (sample_rate / (double) self->sample_rate) * (1 / self->speed);
 
-	if( self->speed != 1 || self->sample_rate != sample_rate ) {
+	if(0 &&( self->speed != 1 || self->sample_rate != sample_rate )) {
 		for( i = 0; i < nframes; i++ ) {
 			src_callback_read(self->src, speed, 1, self->out_frame);
 			buffers[0][i] += self->out_frame[0] * self->volume;
@@ -83,13 +103,17 @@ static void file_process(file_t *self, jack_default_audio_sample_t **buffers, in
 		}
 	} else {
 #endif
-		for( i = 0; i < nframes; i++ ) {
-			o = file_get_play_pos(self);
-                              for (j = 0; j < self->channels; ++j) {
-                                 buffers[j][i] += self->deinterleaved_data[j][o]   * self->volume;
-                               }
-                        file_inc_play_pos(self, 1);
-		}
+			for( i = 0; i < nframes; i++ ) {
+                          j = 0;
+				o = file_get_play_pos(self);
+//                              for (j = 0; j < self->channels; ++j) {
+//                                 buffers[j][i] += self->deinterleaved_data[j][o]   * self->volume;
+//                               }
+                          file_rb_read(self, b);
+				buffers[0][i] += b[0]   * self->volume;
+				buffers[1][i] += b[1]   * self->volume;
+				file_inc_play_pos(self, 1);
+			}
 #ifdef HAVE_SRC
 	}
 #endif
@@ -214,7 +238,6 @@ static void file_init(file_t *self) {
         self->looping = 0;
         self->loop_start = 0;
         self->loop_end = 0;
-
 }
 
 void file_free(file_t *self) {
@@ -259,6 +282,9 @@ file_t *file_new_from_path(const char *path) {
 	self->src         = src_callback_new(file_src_callback, SRC_SINC_FASTEST, info.channels, &err, self);
 #endif
 
+
+
+
 	if( sf_readf_float(snd, self->file_data, info.frames) != info.frames ) {
 		file_free(self);
 		self = NULL;
@@ -277,6 +303,15 @@ file_t *file_new_from_path(const char *path) {
         }
 
 	sf_close(snd);
+
+        printf("Initialising rubberband with %lld %lld\n", self->sample_rate, self->length);
+        rubberband_set_default_debug_level(0);
+        //      self->rbState = rubberband_new(self->sample_rate, self->channels, RubberBandOptionProcessRealTime, 1.0, 1.0);
+        self->rbState = rubberband_new(self->sample_rate, self->channels, 0, 1.0, 1.0);
+        printf("Studying %p...\n", self->deinterleaved_data);
+//        rubberband_study(self->rbState, (const float *const *)deinterleaved, self->length, 1);
+        rubberband_set_max_process_size(self->rbState, self->length);
+        rubberband_process(self->rbState, (const float *const*)self->deinterleaved_data, self->length, 1);
 
 	return self;
 }

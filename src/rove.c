@@ -208,6 +208,11 @@ int main(int argc, char **argv) {
 	if( settings_load(user_config_path()) )
 		exit(EXIT_FAILURE);
 
+        if (state.config.cols == 0) {
+          printf("what's your monome config?\n");
+          exit(EXIT_FAILURE);
+        }
+
 	state.group_count = state.config.cols - 4;
 	state.patterns = list_new();
 	list_init(&state.sessions);

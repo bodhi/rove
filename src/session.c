@@ -113,7 +113,7 @@ static void file_section_callback(const conf_section_t *section, void *arg) {
                         break;
 
                 case 'l':
-                  loop = strtod(pair->value, NULL);
+	                loop = strtod(pair->value, NULL);
                         continue;
 		}
 
@@ -234,6 +234,8 @@ static void session_section_callback(const conf_section_t *section, void *arg) {
 		}
 	}
 
+        printf("session of %d groups\n", state.group_count);
+
 	if( !state.groups )
 		state.groups = initialize_groups(state.group_count);
 
@@ -303,7 +305,7 @@ int session_load(const char *path) {
 
 	conf_var_t file_vars[] = {
 		{"path",    NULL, STRING, 'p'},
-		{"groups",  NULL,    INT, 'g'},
+		{"group",  NULL,    INT, 'g'},
 		{"columns", NULL,    INT, 'c'},
 		{"rows",    NULL,    INT, 'r'},
 		{"reverse", NULL,   BOOL, 'v'},

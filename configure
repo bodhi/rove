@@ -18,8 +18,8 @@
 
 ROVE_VERSION="0.2";
 PREFIX="/usr";
-CFLAGS="";
-LDFLAGS="";
+CFLAGS="-I/opt/local/include -I../../rubberband";
+LDFLAGS="-L/opt/local/lib -L../../rubberband/lib -lrubberband";
 
 CC="gcc";
 CC_VERSION=;
@@ -27,23 +27,25 @@ PKGCONFIG_VERSION=;
 
 HAVE_MONOME=;
 MONOME_VERSION=;
+#MONOME_CFLAGS="-I/Users/bodhi/Code/github-repos/libmonome/public";
 MONOME_CFLAGS="";
+#MONOME_LIBS="-lmonome -L/Users/bodhi/Code/github-repos/libmonome/src";
 MONOME_LIBS="-lmonome";
 
 HAVE_JACK=;
 JACK_VERSION=;
-JACK_CFLAGS="";
-JACK_LIBS="-ljack -lpthread -lrt";
+JACK_CFLAGS="-I/opt/local/include";
+JACK_LIBS="-ljack -lpthread -L/opt/local/lib";
 
 HAVE_SNDFILE=;
 SNDFILE_VERSION=;
-SNDFILE_CFLAGS="";
-SNDFILE_LIBS="-lsndfile";
+SNDFILE_CFLAGS="-I/opt/local/include";
+SNDFILE_LIBS="-lsndfile -L/opt/local/lib";
 
 HAVE_SRC=;
 SRC_VERSION=;
-SRC_CFLAGS="-DHAVE_SRC";
-SRC_LIBS="-lsamplerate";
+SRC_CFLAGS="-DHAVE_SRC -I/opt/local/include";
+SRC_LIBS="-lsamplerate -L/opt/local/lib";
 
 #
 # functions
