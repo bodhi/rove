@@ -12,6 +12,7 @@ OBJS += session.o
 OBJS += settings.o
 OBJS += config_parser.o
 OBJS += file_loop.o
+OBJS += ringbuffer.o
 
 all: $(TARGETS)
 

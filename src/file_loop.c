@@ -122,17 +122,14 @@ static void file_process(file_t *self, jack_default_audio_sample_t **buffers, in
 #ifdef HAVE_SRC
 static long file_src_callback(void *cb_data, float **data) {
 	file_t *self = cb_data;
-	sf_count_t o;
 
 	if( !data )
 		return 0;
 
-	o = self->play_offset;
-//	*data = self->file_data + (o * self->channels);
-        self->in_frame[0] = self->deinterleaved_data[0][o];
-        self->in_frame[1] = self->deinterleaved_data[1][o];
+        ringbuffer_read(self->deinterleaved_data[0], self->in_frame, 1);
+        ringbuffer_read(self->deinterleaved_data[1], self->in_frame + 1, 1);
+
         *data = self->in_frame;
-	file_inc_play_pos(self, 1);
 
 	return 1;
 }
@@ -148,7 +145,7 @@ static void file_monome_out(file_t *self, r_monome_t *monome) {
 	uint8_t *row = (uint8_t *) &r;
 
 	calculate_monome_pos(
-		self->file_length * self->channels, file_get_play_pos(self),
+		self->file_length, file_get_play_pos(self),
 		self->row_span, (self->columns) ? self->columns : monome->cols, &pos);
 
 	if( MONOME_POS_CMP(&pos, &self->monome_pos_old)
@@ -187,7 +184,7 @@ static void file_monome_out(file_t *self, r_monome_t *monome) {
 
 static void file_monome_in(r_monome_t *monome, uint_t x, uint_t y, uint_t type, void *user_arg) {
 	file_t *self = FILE_T(user_arg);
-	unsigned int cols, x_frame;
+	unsigned int cols, x_frame, i;
 
 	r_monome_position_t pos = {x, y - self->y};
 
@@ -211,12 +208,17 @@ static void file_monome_in(r_monome_t *monome, uint_t x, uint_t y, uint_t type, 
             self->new_offset = x_frame;
 
             file_on_quantize(self, file_seek);
-
+            for (i = 0; i < self->channels; ++i) {
+              ringbuffer_read_narrow(self->deinterleaved_data[i], 0, self->length);
+            }
           } else {
             self->looping = 1;
             self->setting_loop = 0;
             self->loop_end = x_frame;
             printf("loop from %d to %d (%d)\n", self->loop_start, self->loop_end, self->loop_end - self->loop_start);
+            for (i = 0; i < self->channels; ++i) {
+              ringbuffer_read_narrow(self->deinterleaved_data[i], self->loop_start, self->loop_end);
+            }
           }
           break;
 	case MONOME_BUTTON_UP:
@@ -243,7 +245,7 @@ static void file_init(file_t *self) {
 void file_free(file_t *self) {
   int i;
   for (i = 0; i < self->channels; ++i) {
-    free(self->deinterleaved_data[i]);
+    ringbuffer_delete(self->deinterleaved_data[i]);
   }
   free(self->deinterleaved_data);
   free(self->in_frame);
@@ -282,9 +284,6 @@ file_t *file_new_from_path(const char *path) {
 	self->src         = src_callback_new(file_src_callback, SRC_SINC_FASTEST, info.channels, &err, self);
 #endif
 
-
-
-
 	if( sf_readf_float(snd, self->file_data, info.frames) != info.frames ) {
 		file_free(self);
 		self = NULL;
@@ -292,13 +291,16 @@ file_t *file_new_from_path(const char *path) {
 
         self->in_frame = calloc(sizeof(float), info.channels);
         self->out_frame = calloc(sizeof(float), info.channels);
-	self->deinterleaved_data   = calloc(sizeof(float *), info.channels);
+	self->deinterleaved_data   = calloc(sizeof(ringbuffer *), info.channels);
+
        for (j = 0; j < info.channels; ++j) {
-         self->deinterleaved_data[j]   = calloc(sizeof(float), info.frames);
+         self->deinterleaved_data[j]   = ringbuffer_init(info.frames);
        }
+
         for (i = 0; i < info.frames; ++i) {
           for (j = 0; j < info.channels; ++j) {
-            self->deinterleaved_data[j][i] = self->file_data[i * info.channels + j];
+                 float *src = self->file_data + i * info.channels + j;
+                 ringbuffer_write(self->deinterleaved_data[j], src, 1);
           }
         }
 
@@ -308,15 +310,17 @@ file_t *file_new_from_path(const char *path) {
         rubberband_set_default_debug_level(0);
         //      self->rbState = rubberband_new(self->sample_rate, self->channels, RubberBandOptionProcessRealTime, 1.0, 1.0);
         self->rbState = rubberband_new(self->sample_rate, self->channels, 0, 1.0, 1.0);
-        printf("Studying %p...\n", self->deinterleaved_data);
+//        printf("Studying %p...\n", self->deinterleaved_data);
 //        rubberband_study(self->rbState, (const float *const *)deinterleaved, self->length, 1);
-        rubberband_set_max_process_size(self->rbState, self->length);
-        rubberband_process(self->rbState, (const float *const*)self->deinterleaved_data, self->length, 1);
+//        rubberband_set_max_process_size(self->rbState, self->length);
+//        rubberband_process(self->rbState, (const float *const*)self->deinterleaved_data, self->length, 1);
 
 	return self;
 }
 
 void file_set_play_pos(file_t *self, sf_count_t p) {
+                 int i;
+
 	if( p >= self->file_length )
 		p %= self->file_length;
 
@@ -330,6 +334,11 @@ void file_set_play_pos(file_t *self, sf_count_t p) {
           self->play_offset = self->loop_start;
         } else
           self->play_offset = p;
+
+        printf("setting play_pos to %llu\n", self->play_offset);
+        for (i = 0; i < self->channels; ++i) {
+          ringbuffer_read_seek(self->deinterleaved_data[i], self->play_offset);
+        }
 }
 
 void file_inc_play_pos(file_t *self, sf_count_t delta) {
@@ -337,6 +346,10 @@ void file_inc_play_pos(file_t *self, sf_count_t delta) {
 		file_set_play_pos(self, self->play_offset - delta);
 	else
 		file_set_play_pos(self, self->play_offset + delta);
+}
+
+sf_count_t file_get_play_pos(file_t *self) {
+  return self->deinterleaved_data[0]->read_head;
 }
 
 void file_change_status(file_t *self, file_status_t nstatus) {

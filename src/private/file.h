@@ -26,13 +26,14 @@
 
 #define file_mapped(x) (x->mapped_monome->callbacks[x->y].data == x)
 #define file_is_active(f) (f->status == FILE_STATUS_ACTIVE)
-#define file_get_play_pos(f) (f->play_offset * f->channels)
+//#define file_get_play_pos(f) (f->play_offset * f->channels)
 
 file_t *file_new_from_path(const char *path);
 void file_free(file_t *self);
 
 void file_set_play_pos(file_t *self, sf_count_t pos);
 void file_inc_play_pos(file_t *self, sf_count_t delta);
+sf_count_t file_get_play_pos(file_t *self);
 
 void file_deactivate(file_t *self);
 void file_seek(file_t *self);

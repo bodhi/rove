@@ -178,6 +178,7 @@ void transport_stop() {
 
 void r_jack_deactivate() {
 	jack_deactivate(state.client);
+        jack_client_close(state.client);
 }
 
 int r_jack_activate() {

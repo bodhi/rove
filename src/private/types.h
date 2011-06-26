@@ -33,6 +33,7 @@
 #include <rubberband/rubberband-c.h>
 
 #include "list.h"
+#include "ringbuffer.h"
 
 #define HANDLER_T(x) ((r_monome_handler_t *) x)
 #define SESSION_T(x) ((session_t *) x)
@@ -142,7 +143,7 @@ struct file {
 #endif
 	double speed;
 
-	float **deinterleaved_data;
+	ringbuffer **deinterleaved_data;
 	float *file_data;
 	float *out_frame;
 	float *in_frame;
