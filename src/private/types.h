@@ -30,10 +30,11 @@
 #include <samplerate.h>
 #endif
 
-#include <rubberband/rubberband-c.h>
 
 #include "list.h"
 #include "ringbuffer.h"
+#include "resampler.h"
+#include "timestretcher.h"
 
 #define HANDLER_T(x) ((r_monome_handler_t *) x)
 #define SESSION_T(x) ((session_t *) x)
@@ -144,6 +145,11 @@ struct file {
 	double speed;
 
 	ringbuffer **deinterleaved_data;
+        float **process_output;
+
+        resampler *resampler;
+        timestretcher *timestretcher;
+
 	float *file_data;
 	float *out_frame;
 	float *in_frame;
@@ -173,7 +179,6 @@ struct file {
   int loop_start;
   int loop_end;
 
-  RubberBandState rbState;
 };
 
 /**

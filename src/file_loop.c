@@ -66,74 +66,32 @@ static void calculate_monome_pos(sf_count_t length, sf_count_t position, uint_t 
 	pos->y = y;
 }
 
-static void file_rb_read(file_t *self, float buffer[2]) {
-  float a = 0, b = 0;
-  float *channels[2];
-  channels[0] = &a;
-  channels[1] = &b;
-
-//  sf_count_t o;
-    int available = rubberband_available(self->rbState);
-  printf("%d samples available\n", available);
-//  while (available == 0) {
-//    printf("processing a sample\n");
-//    o = file_get_play_pos(self);
-//    rubberband_process(self->rbState, (const float **)&(self->file_data[o]), 1, 0);
-//  }
-  /*size_t read = */rubberband_retrieve(self->rbState, channels, 1);
-  buffer[0] = a;
-  buffer[1] = b;
-//  printf("read %ld samples\n", read);
-}
-
 static void file_process(file_t *self, jack_default_audio_sample_t **buffers, int channels, jack_nframes_t nframes, jack_nframes_t sample_rate) {
-  sf_count_t i, o, j;
+  sf_count_t i;
 
 #ifdef HAVE_SRC
-	float b[2];
+//	float b[2];
 	double speed;
 
 	speed = (sample_rate / (double) self->sample_rate) * (1 / self->speed);
 
-	if(0 &&( self->speed != 1 || self->sample_rate != sample_rate )) {
+	if(0 && ( self->speed != 1 || self->sample_rate != sample_rate )) {
 		for( i = 0; i < nframes; i++ ) {
-			src_callback_read(self->src, speed, 1, self->out_frame);
+                  resampler_read(self->resampler, self->out_frame, 1, speed);
 			buffers[0][i] += self->out_frame[0] * self->volume;
 			buffers[1][i] += self->out_frame[1] * self->volume;
 		}
 	} else {
 #endif
 			for( i = 0; i < nframes; i++ ) {
-                          j = 0;
-				o = file_get_play_pos(self);
-//                              for (j = 0; j < self->channels; ++j) {
-//                                 buffers[j][i] += self->deinterleaved_data[j][o]   * self->volume;
-//                               }
-                          file_rb_read(self, b);
-				buffers[0][i] += b[0]   * self->volume;
-				buffers[1][i] += b[1]   * self->volume;
-				file_inc_play_pos(self, 1);
+                                timestretcher_read(self->timestretcher, self->out_frame, 1, speed);
+				buffers[0][i] += self->out_frame[0]   * self->volume;
+				buffers[1][i] += self->out_frame[1]   * self->volume;
 			}
 #ifdef HAVE_SRC
 	}
 #endif
 }
-
-#ifdef HAVE_SRC
-static long file_src_callback(void *cb_data, float **data) {
-	file_t *self = cb_data;
-
-	if( !data )
-		return 0;
-
-        ringbuffer_read(self->deinterleaved_data[0], self->in_frame, 1);
-        ringbuffer_read(self->deinterleaved_data[1], self->in_frame + 1, 1);
-
-        *data = self->in_frame;
-
-	return 1;
-}
-#endif
 
 static void file_monome_out(file_t *self, r_monome_t *monome) {
 	static int blink = 0;
@@ -211,6 +169,8 @@ static void file_monome_in(r_monome_t *monome, uint_t x, uint_t y, uint_t type, 
             for (i = 0; i < self->channels; ++i) {
               ringbuffer_read_narrow(self->deinterleaved_data[i], 0, self->length);
             }
+            resampler_narrow(self->resampler, 0, self->length);
+            timestretcher_narrow(self->timestretcher, 0, self->length);
           } else {
             self->looping = 1;
             self->setting_loop = 0;
@@ -219,6 +179,8 @@ static void file_monome_in(r_monome_t *monome, uint_t x, uint_t y, uint_t type, 
             for (i = 0; i < self->channels; ++i) {
               ringbuffer_read_narrow(self->deinterleaved_data[i], self->loop_start, self->loop_end);
             }
+            resampler_narrow(self->resampler, self->loop_start, self->loop_end);
+            timestretcher_narrow(self->timestretcher, self->loop_start, self->loop_end);
           }
           break;
 	case MONOME_BUTTON_UP:
@@ -255,9 +217,6 @@ void file_free(file_t *self) {
 }
 
 file_t *file_new_from_path(const char *path) {
-#ifdef HAVE_SRC
-	int err;
-#endif
         int i, j;
 	file_t *self;
 	SF_INFO info;
@@ -280,40 +239,60 @@ file_t *file_new_from_path(const char *path) {
 	self->sample_rate = info.samplerate;
 	self->file_data   = calloc(sizeof(float), info.frames * info.channels);
 
-#ifdef HAVE_SRC
-	self->src         = src_callback_new(file_src_callback, SRC_SINC_FASTEST, info.channels, &err, self);
-#endif
-
 	if( sf_readf_float(snd, self->file_data, info.frames) != info.frames ) {
 		file_free(self);
 		self = NULL;
 	}
 
+          self->resampler = resampler_init(self->file_data, info.frames, info.channels);
+
+          if (info.samplerate != 44100) {
+          printf("resampling\n");
+          SRC_DATA data;
+          data.data_in = self->file_data;
+          data.input_frames = info.frames;
+          data.src_ratio = 44100.0/info.samplerate;
+          data.output_frames = ceil(info.frames * data.src_ratio);
+          data.data_out = calloc(sizeof(float), data.output_frames * info.channels);
+          src_simple(&data, SRC_SINC_MEDIUM_QUALITY, info.channels);
+
+          self->timestretcher = timestretcher_init(data.data_out, data.output_frames, info.channels, 44100);
+          self->length = self->file_length = data.output_frames;
+          self->sample_rate = 44100;
+          free(data.data_out);
+          } else {
+          self->timestretcher = timestretcher_init(self->file_data, info.frames, info.channels, 44100);
+          }
+
         self->in_frame = calloc(sizeof(float), info.channels);
         self->out_frame = calloc(sizeof(float), info.channels);
 	self->deinterleaved_data   = calloc(sizeof(ringbuffer *), info.channels);
+        self->process_output = calloc(sizeof(float *), info.channels);
 
        for (j = 0; j < info.channels; ++j) {
          self->deinterleaved_data[j]   = ringbuffer_init(info.frames);
+         self->process_output[j] = calloc(sizeof(float), 512);
        }
 
         for (i = 0; i < info.frames; ++i) {
           for (j = 0; j < info.channels; ++j) {
-                 float *src = self->file_data + i * info.channels + j;
-                 ringbuffer_write(self->deinterleaved_data[j], src, 1);
+            float *src = self->file_data + i * info.channels + j;
+            ringbuffer_write(self->deinterleaved_data[j], src, 1);
           }
         }
 
 	sf_close(snd);
 
-        printf("Initialising rubberband with %lld %lld\n", self->sample_rate, self->length);
-        rubberband_set_default_debug_level(0);
-        //      self->rbState = rubberband_new(self->sample_rate, self->channels, RubberBandOptionProcessRealTime, 1.0, 1.0);
-        self->rbState = rubberband_new(self->sample_rate, self->channels, 0, 1.0, 1.0);
-//        printf("Studying %p...\n", self->deinterleaved_data);
-//        rubberband_study(self->rbState, (const float *const *)deinterleaved, self->length, 1);
+//        printf("Initialising rubberband with %lld %lld\n", self->sample_rate, self->length);
+
+//        rubberband_set_default_debug_level(1);
+
+//        self->rbState = rubberband_new(self->sample_rate, self->channels, RubberBandOptionProcessRealTime, 1.0, 1.0);
+//        self->rbState = rubberband_new(self->sample_rate, self->channels, 0, 1.0, 1.0);
 //        rubberband_set_max_process_size(self->rbState, self->length);
-//        rubberband_process(self->rbState, (const float *const*)self->deinterleaved_data, self->length, 1);
+
+//        rubberband_study(self->rbState, (const float *const *)rb_data, self->length, 1);
+//        rubberband_process(self->rbState, (const float *const*)rb_data, self->length, 1);
 
 	return self;
 }
@@ -339,6 +318,8 @@ void file_set_play_pos(file_t *self, sf_count_t p) {
         for (i = 0; i < self->channels; ++i) {
           ringbuffer_read_seek(self->deinterleaved_data[i], self->play_offset);
         }
+        resampler_seek(self->resampler, self->play_offset);
+        timestretcher_seek(self->timestretcher, self->play_offset);
 }
 
 void file_inc_play_pos(file_t *self, sf_count_t delta) {
@@ -349,7 +330,8 @@ void file_inc_play_pos(file_t *self, sf_count_t delta) {
 }
 
 sf_count_t file_get_play_pos(file_t *self) {
-  return self->deinterleaved_data[0]->read_head;
+          return timestretcher_position(self->timestretcher);
+          //return resampler_position(self->resampler);
 }
 
 void file_change_status(file_t *self, file_status_t nstatus) {

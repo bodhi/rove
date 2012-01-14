@@ -9,15 +9,21 @@ provide the ability to narrow the read region (to support looping
 sub-sections of the buffer. Narrowing the buffer is probably not at
 all thread-safe. */
 ringbuffer *ringbuffer_init(sf_count_t floatcount) {
+    float *data = calloc(floatcount, sizeof(float));
+
+    return ringbuffer_init_with_data(data, floatcount);
+}
+
+ringbuffer *ringbuffer_init_with_data(float *data, sf_count_t size) {
     ringbuffer *buffer;
     buffer = calloc(1, sizeof(ringbuffer));
-    buffer->size = floatcount;
-    buffer->data = calloc(floatcount, sizeof(float));
+    buffer->size = size;
+    buffer->data = data;
 
     buffer->read_head = 0;
     buffer->write_head = 0;
 
-    ringbuffer_read_narrow(buffer, 0, floatcount);
+    ringbuffer_read_narrow(buffer, 0, size);
 
     return buffer;
 }
@@ -48,7 +54,7 @@ void ringbuffer_write(ringbuffer *buffer, float *data, sf_count_t data_size) {
     if (wrap_amount > 0) {
       memcpy((buffer->data), data, wrap_amount * sizeof(float));
     }
-    
+
     buffer->write_head = (buffer->write_head + data_size) % buffer->size;
 }
 
@@ -67,33 +73,33 @@ static sf_count_t mod(sf_count_t val, sf_count_t s, sf_count_t e, sf_count_t max
 }
 
 // Advance read head by c frames and make sure that it is still in a valid position
-void read_advance(ringbuffer *buffer, sf_count_t c) {
+void ringbuffer_read_advance(ringbuffer *buffer, sf_count_t c) {
   buffer->read_head += c;
   buffer->read_head = mod(buffer->read_head, buffer->start, buffer->end, buffer->size);
 }
 
-// for 0...s-*-e...M read from * to e  
+// for 0...s-*-e...M read from * to e
 // for 0-*-e...s---M read from * to e
 // for 0---e...s-*-M read from * to M
-sf_count_t read_available(ringbuffer *buffer) {
+sf_count_t ringbuffer_read_available(ringbuffer *buffer) {
   sf_count_t available;
-  read_advance(buffer, 0); // make sure read head is in valid range
+  ringbuffer_read_advance(buffer, 0); // make sure read head is in valid range
   if (buffer->end < buffer->start && buffer->read_head >= buffer->start) // |--e....s--*--|
     available = buffer->size - buffer->read_head;
   else // |-*-e....s----|
-    available = buffer->end - buffer->read_head; 
+    available = buffer->end - buffer->read_head;
 
   return available;
 }
 
 // Read as much as possible without needing to reset read_head (ie. wrap the buffer)
 sf_count_t ringbuffer_read_segment(ringbuffer *buffer, float *output, sf_count_t read_size) {
-  sf_count_t c = read_available(buffer);
+  sf_count_t c = ringbuffer_read_available(buffer);
   if (c <= read_size) read_size = c;
-  
+
   memcpy(output, buffer->data + buffer->read_head, read_size * sizeof(float));
-  read_advance(buffer, read_size);
-  
+  ringbuffer_read_advance(buffer, read_size);
+
   return read_size;
 }
 
