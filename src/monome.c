@@ -126,6 +126,8 @@ static void session_lights(r_monome_t *monome) {
 
 static void control_row_handler(r_monome_t *monome, uint_t x, uint_t y, uint_t event_type, void *user_arg) {
 	r_monome_handler_t *callback;
+        list_member_t *m;
+        file_t *f, *file;
 	int i;
 
 	if( x >= monome->cols || !(callback = &monome->controls[x]) )
@@ -147,6 +149,16 @@ static void control_row_handler(r_monome_t *monome, uint_t x, uint_t y, uint_t e
 		if( session_next() )
 			return;
 		break;
+
+        case 5:
+          printf("recording\n");
+          list_foreach(state.files, m, f) {
+            file = f;
+            break;
+          }
+          file->status = FILE_STATUS_RECORDING;
+          printf("ok\n");
+          break;
 		
 	default:
 		return;
@@ -229,7 +241,7 @@ static void initialize_control_callbacks(r_monome_t *monome) {
 	int y, i, group_count;
 
 	/* leave room for two pattern recorders and the two mod keys */
-	group_count = MIN(state.group_count, monome->cols - 4);
+	group_count = MIN(state.group_count, monome->cols - 5);
 
 	y = 0;
 

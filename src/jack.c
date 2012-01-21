@@ -39,6 +39,11 @@ static jack_port_t *group_mix_inport_r;
 static jack_port_t *outport_l;
 static jack_port_t *outport_r;
 
+static jack_port_t *inport_l;
+static jack_port_t *inport_r;
+
+static ringbuffer *input_buffer;
+
 static void process_file(file_t *f) {
 	if( !f )
 		return;
@@ -66,7 +71,7 @@ static int process(jack_nframes_t nframes, void *arg) {
 	jack_default_audio_sample_t *in_l;
 	jack_default_audio_sample_t *in_r;
 
-	jack_nframes_t until_quantize, rate, nframes_left, nframes_offset, i;
+	jack_nframes_t until_quantize, rate, nframes_left, nframes_offset, i, total_frames;
 	int j, group_count, next_bit;
 	uint16_t qfield;
 
@@ -74,6 +79,8 @@ static int process(jack_nframes_t nframes, void *arg) {
 
 	group_t *g;
 	file_t *f;
+
+	total_frames = nframes;
 
 	group_count = state.group_count;
 
@@ -135,6 +142,7 @@ static int process(jack_nframes_t nframes, void *arg) {
 
 			if( f->process_cb )
 				f->process_cb(f, buffers, 2, nframes_left, rate);
+
 		}
 
 		nframes_offset += nframes_left;
@@ -147,6 +155,12 @@ static int process(jack_nframes_t nframes, void *arg) {
 
 	memcpy(out_l, in_l, sizeof(jack_default_audio_sample_t) * nframes_offset);
 	memcpy(out_r, in_r, sizeof(jack_default_audio_sample_t) * nframes_offset);
+
+	buffers[0] = jack_port_get_buffer(inport_l, nframes_offset);
+	buffers[1] = jack_port_get_buffer(inport_r, nframes_offset);
+
+	f = state.files->head.next->data;
+	f->record_cb(f, buffers, 2, total_frames, rate, input_buffer, 16 * state.frames_per_beat);
 
 	return 0;
 }
@@ -165,6 +179,20 @@ static void connect_to_outports(jack_client_t *client) {
 	}
 
 	free(ports);
+
+	// Connect to Rove out
+	jack_connect(client, jack_port_name(outport_l), jack_port_name(inport_l));
+	jack_connect(client, jack_port_name(outport_r), jack_port_name(inport_r));
+
+/*
+	ports = jack_get_ports(client, NULL, NULL, JackPortIsPhysical | JackPortIsOutput);
+	if( ports != NULL ) {
+		jack_connect(client, ports[0], jack_port_name(inport_l));
+		jack_connect(client, ports[1], jack_port_name(inport_r));
+	}
+
+	free(ports);
+*/
 }
 
 void transport_start() {
@@ -201,6 +229,12 @@ int r_jack_activate() {
 		jack_connect(client, jack_port_name(g->outport_r), jack_port_name(group_mix_inport_r));
 	}
 
+
+	int buffer_beat_length = 16;
+	sf_count_t input_buffer_length = buffer_beat_length * state.frames_per_beat;
+        printf("max loop length %lld (%d beats @ %f bpm)\n", input_buffer_length, buffer_beat_length, state.bpm);
+	input_buffer = ringbuffer_init(input_buffer_length * 2); /* woo, stereo! */
+
 	return 0;
 }
 
@@ -225,6 +259,9 @@ int r_jack_init() {
 
 	outport_l = jack_port_register(state.client, "master_out:l", JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput, 0);
 	outport_r = jack_port_register(state.client, "master_out:r", JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput, 0);
+
+	inport_l = jack_port_register(state.client, "master_in:l", JACK_DEFAULT_AUDIO_TYPE, JackPortIsInput, 0);
+	inport_r = jack_port_register(state.client, "master_in:r", JACK_DEFAULT_AUDIO_TYPE, JackPortIsInput, 0);
 
 	group_mix_inport_l = jack_port_register(state.client, "group_mix_in:l", JACK_DEFAULT_AUDIO_TYPE, JackPortIsInput, 0);
 	group_mix_inport_r = jack_port_register(state.client, "group_mix_in:r", JACK_DEFAULT_AUDIO_TYPE, JackPortIsInput, 0);

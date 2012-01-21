@@ -171,6 +171,8 @@ static void file_section_callback(const conf_section_t *section, void *arg) {
           f->speed = session->bpm/bpm;
         }
 
+        printf("loaded file\n");
+
 	return;
 
 err_load:

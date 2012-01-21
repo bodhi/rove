@@ -18,8 +18,8 @@
 
 ROVE_VERSION="0.2";
 PREFIX="/usr";
-CFLAGS="-I/opt/local/include -I../../rubberband";
-LDFLAGS="-L/opt/local/lib -L../../rubberband/lib -lrubberband";
+CFLAGS="-I/usr/local/include -I../../rubberband";
+LDFLAGS="-L/usr/local/lib -L../../rubberband/lib -lrubberband";
 
 CC="gcc";
 CC_VERSION=;

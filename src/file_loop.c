@@ -70,12 +70,12 @@ static void file_process(file_t *self, jack_default_audio_sample_t **buffers, in
   sf_count_t i;
 
 #ifdef HAVE_SRC
-//	float b[2];
+	float b[2];
 	double speed;
 
 	speed = (sample_rate / (double) self->sample_rate) * (1 / self->speed);
 
-	if(0 && ( self->speed != 1 || self->sample_rate != sample_rate )) {
+	if(self->speed > 0) {
 		for( i = 0; i < nframes; i++ ) {
                   resampler_read(self->resampler, self->out_frame, 1, speed);
 			buffers[0][i] += self->out_frame[0] * self->volume;
@@ -83,15 +83,40 @@ static void file_process(file_t *self, jack_default_audio_sample_t **buffers, in
 		}
 	} else {
 #endif
-			for( i = 0; i < nframes; i++ ) {
-                                timestretcher_read(self->timestretcher, self->out_frame, 1, speed);
-				buffers[0][i] += self->out_frame[0]   * self->volume;
-				buffers[1][i] += self->out_frame[1]   * self->volume;
-			}
+		for( i = 0; i < nframes; i++ ) {
+//                                timestretcher_read(self->timestretcher, self->out_frame, 1, speed);
+			ringbuffer_read(self->resampler->source, b, 2);
+			buffers[0][i] += b[0]   * self->volume;
+			buffers[1][i] += b[1]   * self->volume;
+		}
 #ifdef HAVE_SRC
 	}
 #endif
 }
+
+static void file_record(file_t *self, jack_default_audio_sample_t **buffers, int channels, jack_nframes_t nframes, jack_nframes_t sample_rate, ringbuffer *scratch_buffer, sf_count_t length) {
+	if (self->status != FILE_STATUS_RECORDING) return;
+//	if (nframes < 256) printf("recording, got %d frames @ %d\n", nframes, sample_rate);
+
+	self->sample_rate = sample_rate;
+	self->resampler->source = scratch_buffer;
+	self->length = self->file_length = length;
+	self->speed = -1;
+	
+	sf_count_t i;
+	jack_default_audio_sample_t buffer[2];
+	for (i = 0; i < nframes; ++i) {
+		buffer[0] = buffers[0][i];
+		buffer[1] = buffers[1][i];
+		ringbuffer_write(scratch_buffer, buffer, 2);
+		if (scratch_buffer->write_head < 2) {
+			printf("finished writing %lu %lu\n", sizeof(jack_default_audio_sample_t), sizeof(float));
+			self->status = FILE_STATUS_INACTIVE;
+			break; // after writing 2 bytes, write_head >= 2 unless we've wrapped around
+		}
+	}
+}
+
 
 static void file_monome_out(file_t *self, r_monome_t *monome) {
 	static int blink = 0;
@@ -170,7 +195,7 @@ static void file_monome_in(r_monome_t *monome, uint_t x, uint_t y, uint_t type, 
               ringbuffer_read_narrow(self->deinterleaved_data[i], 0, self->length);
             }
             resampler_narrow(self->resampler, 0, self->length);
-            timestretcher_narrow(self->timestretcher, 0, self->length);
+//            timestretcher_narrow(self->timestretcher, 0, self->length);
           } else {
             self->looping = 1;
             self->setting_loop = 0;
@@ -180,7 +205,7 @@ static void file_monome_in(r_monome_t *monome, uint_t x, uint_t y, uint_t type, 
               ringbuffer_read_narrow(self->deinterleaved_data[i], self->loop_start, self->loop_end);
             }
             resampler_narrow(self->resampler, self->loop_start, self->loop_end);
-            timestretcher_narrow(self->timestretcher, self->loop_start, self->loop_end);
+//            timestretcher_narrow(self->timestretcher, self->loop_start, self->loop_end);
           }
           break;
 	case MONOME_BUTTON_UP:
@@ -195,6 +220,7 @@ static void file_init(file_t *self) {
 	self->volume         = 1.0;
 
 	self->process_cb     = file_process;
+	self->record_cb     = file_record;
 	self->monome_out_cb  = file_monome_out;
 	self->monome_in_cb   = file_monome_in;
 
@@ -246,7 +272,7 @@ file_t *file_new_from_path(const char *path) {
 
           self->resampler = resampler_init(self->file_data, info.frames, info.channels);
 
-          if (info.samplerate != 44100) {
+          if (0 && info.samplerate != 44100) {
           printf("resampling\n");
           SRC_DATA data;
           data.data_in = self->file_data;
@@ -256,12 +282,12 @@ file_t *file_new_from_path(const char *path) {
           data.data_out = calloc(sizeof(float), data.output_frames * info.channels);
           src_simple(&data, SRC_SINC_MEDIUM_QUALITY, info.channels);
 
-          self->timestretcher = timestretcher_init(data.data_out, data.output_frames, info.channels, 44100);
+//          self->timestretcher = timestretcher_init(data.data_out, data.output_frames, info.channels, 44100);
           self->length = self->file_length = data.output_frames;
           self->sample_rate = 44100;
           free(data.data_out);
           } else {
-          self->timestretcher = timestretcher_init(self->file_data, info.frames, info.channels, 44100);
+//          self->timestretcher = timestretcher_init(self->file_data, info.frames, info.channels, 44100);
           }
 
         self->in_frame = calloc(sizeof(float), info.channels);
@@ -319,7 +345,7 @@ void file_set_play_pos(file_t *self, sf_count_t p) {
           ringbuffer_read_seek(self->deinterleaved_data[i], self->play_offset);
         }
         resampler_seek(self->resampler, self->play_offset);
-        timestretcher_seek(self->timestretcher, self->play_offset);
+//        timestretcher_seek(self->timestretcher, self->play_offset);
 }
 
 void file_inc_play_pos(file_t *self, sf_count_t delta) {
@@ -330,8 +356,8 @@ void file_inc_play_pos(file_t *self, sf_count_t delta) {
 }
 
 sf_count_t file_get_play_pos(file_t *self) {
-          return timestretcher_position(self->timestretcher);
-          //return resampler_position(self->resampler);
+  //return timestretcher_position(self->timestretcher);
+          return resampler_position(self->resampler);
 }
 
 void file_change_status(file_t *self, file_status_t nstatus) {
@@ -342,6 +368,7 @@ void file_change_status(file_t *self, file_status_t nstatus) {
 			return;
 
 		case FILE_STATUS_INACTIVE:
+                case FILE_STATUS_RECORDING:
 			if( self->group->active_loop == self )
 				self->group->active_loop = NULL;
 
@@ -350,12 +377,14 @@ void file_change_status(file_t *self, file_status_t nstatus) {
 		break;
 
 	case FILE_STATUS_INACTIVE:
+	case FILE_STATUS_RECORDING:
 		switch(nstatus) {
 		case FILE_STATUS_ACTIVE:
 			group_activate_file(self);
 			break;
 
 		case FILE_STATUS_INACTIVE:
+                case FILE_STATUS_RECORDING:
 			return;
 		}
 		break;

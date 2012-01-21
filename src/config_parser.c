@@ -147,7 +147,7 @@ static void close_block(conf_section_t *s, conf_pair_t *p) {
 		s->pairs = NULL;
 	}
 }
-
+/*
 static char *strndup(const char *in, size_t len) {
   int i;
   char *ret = malloc((len + 1) * sizeof(char));
@@ -157,7 +157,7 @@ static char *strndup(const char *in, size_t len) {
   ret[i] = 0;
   return ret;
 }
-
+*/
 static int config_parse(const char *path, conf_section_t *sections, int cd) {
 	char buf[BUFLEN + 1], vbuf[BUFLEN + 1], c;
 	conf_section_t *s = NULL;

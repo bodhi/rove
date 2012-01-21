@@ -34,7 +34,7 @@
 #include "list.h"
 #include "ringbuffer.h"
 #include "resampler.h"
-#include "timestretcher.h"
+//#include "timestretcher.h"
 
 #define HANDLER_T(x) ((r_monome_handler_t *) x)
 #define SESSION_T(x) ((session_t *) x)
@@ -49,7 +49,8 @@ typedef unsigned int uint_t;
 
 typedef enum {
 	FILE_STATUS_ACTIVE,
-	FILE_STATUS_INACTIVE
+        FILE_STATUS_INACTIVE,
+        FILE_STATUS_RECORDING,
 } file_status_t;
 
 typedef enum {
@@ -84,6 +85,7 @@ typedef struct state state_t;
 typedef void (*r_monome_callback_t)(r_monome_t *, uint_t x, uint_t y, uint_t event_type, void *user_arg);
 
 typedef void (*process_callback_t)(file_t *self, jack_default_audio_sample_t **buffers, int channels, jack_nframes_t nframes, jack_nframes_t sample_rate);
+typedef void (*record_callback_t)(file_t *self, jack_default_audio_sample_t **buffers, int channels, jack_nframes_t nframes, jack_nframes_t sample_rate, ringbuffer *input_buffer, sf_count_t length);
 typedef void (*quantize_callback_t)(file_t *self);
 typedef void (*r_monome_output_callback_t)(file_t *self, r_monome_t *);
 
@@ -148,7 +150,7 @@ struct file {
         float **process_output;
 
         resampler *resampler;
-        timestretcher *timestretcher;
+//        timestretcher *timestretcher;
 
 	float *file_data;
 	float *out_frame;
@@ -166,18 +168,20 @@ struct file {
 	int force_monome_update;
 
 	unsigned int columns;
+	unsigned int rows;
 
 	group_t *group;
 
 	process_callback_t process_cb;
+	record_callback_t record_cb;
 	quantize_callback_t quantize_cb;
 	r_monome_output_callback_t monome_out_cb;
 	r_monome_callback_t monome_in_cb;
 
-  int setting_loop;
-  int looping;
-  int loop_start;
-  int loop_end;
+	int setting_loop;
+	int looping;
+	int loop_start;
+	int loop_end;
 
 };
 
