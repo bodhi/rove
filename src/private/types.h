@@ -84,8 +84,7 @@ typedef struct state state_t;
 
 typedef void (*r_monome_callback_t)(r_monome_t *, uint_t x, uint_t y, uint_t event_type, void *user_arg);
 
-typedef void (*process_callback_t)(file_t *self, jack_default_audio_sample_t **buffers, int channels, jack_nframes_t nframes, jack_nframes_t sample_rate);
-typedef void (*record_callback_t)(file_t *self, jack_default_audio_sample_t **buffers, int channels, jack_nframes_t nframes, jack_nframes_t sample_rate, ringbuffer *input_buffer, sf_count_t length);
+typedef void (*process_callback_t)(file_t *self, jack_default_audio_sample_t **buffers, int channels, jack_default_audio_sample_t **input_buffers, int input_channels, jack_nframes_t nframes, jack_nframes_t sample_rate);
 typedef void (*quantize_callback_t)(file_t *self);
 typedef void (*r_monome_output_callback_t)(file_t *self, r_monome_t *);
 
@@ -133,6 +132,8 @@ struct file {
 
 	double volume;
 
+	int loop;
+
 	sf_count_t length;
 	sf_count_t play_offset;
 	sf_count_t new_offset;
@@ -173,7 +174,6 @@ struct file {
 	group_t *group;
 
 	process_callback_t process_cb;
-	record_callback_t record_cb;
 	quantize_callback_t quantize_cb;
 	r_monome_output_callback_t monome_out_cb;
 	r_monome_callback_t monome_in_cb;
@@ -286,6 +286,8 @@ struct state {
 
 	jack_nframes_t snap_delay;
 	jack_nframes_t frames_per_beat;
+
+	unsigned char recording;
 };
 
 #endif

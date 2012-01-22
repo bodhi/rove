@@ -36,6 +36,8 @@
 
 extern state_t state;
 
+void file_change_status(file_t *self, file_status_t nstatus);
+
 static sf_count_t calculate_play_pos(sf_count_t length, int x, int y, uint_t reverse, uint_t rows, uint_t cols) {
 	double elapsed;
 
@@ -66,9 +68,34 @@ static void calculate_monome_pos(sf_count_t length, sf_count_t position, uint_t 
 	pos->y = y;
 }
 
-static void file_process(file_t *self, jack_default_audio_sample_t **buffers, int channels, jack_nframes_t nframes, jack_nframes_t sample_rate) {
+
+static void file_record(file_t *self, jack_default_audio_sample_t **buffers, int channels, jack_nframes_t nframes, jack_nframes_t sample_rate) {
+	self->sample_rate = sample_rate;
+	self->length = self->file_length = self->loop * state.frames_per_beat * channels;
+	self->speed = -1;
+
+	printf("recording %d frames @ %llu!\n", nframes, scratch_buffer->write_head);
+
+	sf_count_t i;
+	jack_default_audio_sample_t buffer[2];
+	for (i = 0; i < nframes; ++i) {
+		buffer[0] = buffers[0][i];
+		buffer[1] = buffers[1][i];
+		ringbuffer_write(scratch_buffer, buffer, 2);
+		if ((scratch_buffer->write_head < 2) || (scratch_buffer->write_head == self->length)) {
+			printf("finished writing @ %llu\n", scratch_buffer->write_head);
+		        file_change_status(self, FILE_STATUS_INACTIVE);
+			break; // after writing 2 bytes, write_head >= 2 unless we've wrapped around
+		}
+	}
+}
+
+static void file_process(file_t *self, jack_default_audio_sample_t **buffers, int channels, jack_default_audio_sample_t **input_buffers, int input_channels, jack_nframes_t nframes, jack_nframes_t sample_rate) {
   sf_count_t i;
 
+  if (self->status == FILE_STATUS_RECORDING) {
+	  file_record(self, input_buffers, input_channels, nframes, sample_rate);
+  } else {
 #ifdef HAVE_SRC
 	float b[2];
 	double speed;
@@ -92,29 +119,7 @@ static void file_process(file_t *self, jack_default_audio_sample_t **buffers, in
 #ifdef HAVE_SRC
 	}
 #endif
-}
-
-static void file_record(file_t *self, jack_default_audio_sample_t **buffers, int channels, jack_nframes_t nframes, jack_nframes_t sample_rate, ringbuffer *scratch_buffer, sf_count_t length) {
-	if (self->status != FILE_STATUS_RECORDING) return;
-//	if (nframes < 256) printf("recording, got %d frames @ %d\n", nframes, sample_rate);
-
-	self->sample_rate = sample_rate;
-	self->resampler->source = scratch_buffer;
-	self->length = self->file_length = length;
-	self->speed = -1;
-	
-	sf_count_t i;
-	jack_default_audio_sample_t buffer[2];
-	for (i = 0; i < nframes; ++i) {
-		buffer[0] = buffers[0][i];
-		buffer[1] = buffers[1][i];
-		ringbuffer_write(scratch_buffer, buffer, 2);
-		if (scratch_buffer->write_head < 2) {
-			printf("finished writing %lu %lu\n", sizeof(jack_default_audio_sample_t), sizeof(float));
-			self->status = FILE_STATUS_INACTIVE;
-			break; // after writing 2 bytes, write_head >= 2 unless we've wrapped around
-		}
-	}
+  }
 }
 
 
@@ -191,11 +196,6 @@ static void file_monome_in(r_monome_t *monome, uint_t x, uint_t y, uint_t type, 
             self->new_offset = x_frame;
 
             file_on_quantize(self, file_seek);
-            for (i = 0; i < self->channels; ++i) {
-              ringbuffer_read_narrow(self->deinterleaved_data[i], 0, self->length);
-            }
-            resampler_narrow(self->resampler, 0, self->length);
-//            timestretcher_narrow(self->timestretcher, 0, self->length);
           } else {
             self->looping = 1;
             self->setting_loop = 0;
@@ -220,7 +220,6 @@ static void file_init(file_t *self) {
 	self->volume         = 1.0;
 
 	self->process_cb     = file_process;
-	self->record_cb     = file_record;
 	self->monome_out_cb  = file_monome_out;
 	self->monome_in_cb   = file_monome_in;
 
@@ -340,11 +339,12 @@ void file_set_play_pos(file_t *self, sf_count_t p) {
         } else
           self->play_offset = p;
 
-        printf("setting play_pos to %llu\n", self->play_offset);
+        printf("setting play_pos to %llu, recording? %d\n", self->play_offset, state.recording);
         for (i = 0; i < self->channels; ++i) {
           ringbuffer_read_seek(self->deinterleaved_data[i], self->play_offset);
         }
         resampler_seek(self->resampler, self->play_offset);
+	self->resampler->source->write_head = self->play_offset;
 //        timestretcher_seek(self->timestretcher, self->play_offset);
 }
 
@@ -357,18 +357,21 @@ void file_inc_play_pos(file_t *self, sf_count_t delta) {
 
 sf_count_t file_get_play_pos(file_t *self) {
   //return timestretcher_position(self->timestretcher);
-          return resampler_position(self->resampler);
+	return self->status == FILE_STATUS_ACTIVE ?
+		resampler_position(self->resampler) :
+		self->resampler->source->write_head/2; /* 2 channels, interleaved */
 }
 
 void file_change_status(file_t *self, file_status_t nstatus) {
 	switch(self->status) {
 	case FILE_STATUS_ACTIVE:
+	case FILE_STATUS_RECORDING:
 		switch(nstatus) {
 		case FILE_STATUS_ACTIVE:
+                case FILE_STATUS_RECORDING:
 			return;
 
 		case FILE_STATUS_INACTIVE:
-                case FILE_STATUS_RECORDING:
 			if( self->group->active_loop == self )
 				self->group->active_loop = NULL;
 
@@ -377,14 +380,13 @@ void file_change_status(file_t *self, file_status_t nstatus) {
 		break;
 
 	case FILE_STATUS_INACTIVE:
-	case FILE_STATUS_RECORDING:
 		switch(nstatus) {
 		case FILE_STATUS_ACTIVE:
+                case FILE_STATUS_RECORDING:
 			group_activate_file(self);
 			break;
 
 		case FILE_STATUS_INACTIVE:
-                case FILE_STATUS_RECORDING:
 			return;
 		}
 		break;
@@ -403,8 +405,16 @@ void file_deactivate(file_t *self) {
 }
 
 void file_seek(file_t *self) {
-	file_change_status(self, FILE_STATUS_ACTIVE);
+	file_change_status(self, state.recording ? FILE_STATUS_RECORDING : FILE_STATUS_ACTIVE);
 	file_set_play_pos(self, self->new_offset);
+
+//	int i;
+//	for (i = 0; i < self->channels; ++i) {
+//	ringbuffer_read_narrow(self->deinterleaved_data[i], 0, self->length);
+//}
+	resampler_narrow(self->resampler, 0, self->length);
+//            timestretcher_narrow(self->timestretcher, 0, self->length);
+
 }
 
 void file_on_quantize(file_t *self, quantize_callback_t cb) {

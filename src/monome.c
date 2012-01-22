@@ -126,8 +126,6 @@ static void session_lights(r_monome_t *monome) {
 
 static void control_row_handler(r_monome_t *monome, uint_t x, uint_t y, uint_t event_type, void *user_arg) {
 	r_monome_handler_t *callback;
-        list_member_t *m;
-        file_t *f, *file;
 	int i;
 
 	if( x >= monome->cols || !(callback = &monome->controls[x]) )
@@ -136,7 +134,7 @@ static void control_row_handler(r_monome_t *monome, uint_t x, uint_t y, uint_t e
 	if( callback->cb )
 		return callback->cb(monome, x, y, event_type, callback);
 
-	if( event_type != MONOME_BUTTON_DOWN )
+	if( event_type != MONOME_BUTTON_DOWN && monome->cols - x != 5)
 		return;
 
 	switch( monome->cols - x ) {
@@ -151,13 +149,16 @@ static void control_row_handler(r_monome_t *monome, uint_t x, uint_t y, uint_t e
 		break;
 
         case 5:
-          printf("recording\n");
-          list_foreach(state.files, m, f) {
-            file = f;
-            break;
-          }
-          file->status = FILE_STATUS_RECORDING;
-          printf("ok\n");
+          printf("recording?\n");
+	  if (event_type == MONOME_BUTTON_DOWN) {
+		  printf("recording.\n");
+		  state.recording = 1;
+		  monome_led_on(monome->dev, monome->cols - 5, 0);
+	  } else { // Button up
+		  printf("not any more\n");
+		  state.recording = 0;
+		  monome_led_off(monome->dev, monome->cols - 5, 0);
+	  }
           break;
 		
 	default:

@@ -164,11 +164,12 @@ static void file_section_callback(const conf_section_t *section, void *arg) {
 		f->y = this_y;
 
         if (loop) {
-          msec = 1000*f->length / f->sample_rate;
-          bpm = loop * (60.0 * 1000) / msec;
+		f->loop = loop;
+		msec = 1000*f->length / f->sample_rate;
+		bpm = loop * (60.0 * 1000) / msec;
 
-          printf("adjust speed to %lf @ %.2f bpm to loop at session bpm of %.2f\n", session->bpm/bpm, bpm, session->bpm);
-          f->speed = session->bpm/bpm;
+		printf("adjust speed to %lf @ %.2f bpm to loop at session bpm of %.2f\n", session->bpm/bpm, bpm, session->bpm);
+		f->speed = session->bpm/bpm;
         }
 
         printf("loaded file\n");

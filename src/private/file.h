@@ -25,7 +25,7 @@
 #include "types.h"
 
 #define file_mapped(x) (x->mapped_monome->callbacks[x->y].data == x)
-#define file_is_active(f) (f->status == FILE_STATUS_ACTIVE)
+#define file_is_active(f) (f->status != FILE_STATUS_INACTIVE)
 //#define file_get_play_pos(f) (f->play_offset * f->channels)
 
 file_t *file_new_from_path(const char *path);

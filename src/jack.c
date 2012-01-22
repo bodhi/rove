@@ -42,8 +42,6 @@ static jack_port_t *outport_r;
 static jack_port_t *inport_l;
 static jack_port_t *inport_r;
 
-static ringbuffer *input_buffer;
-
 static void process_file(file_t *f) {
 	if( !f )
 		return;
@@ -76,6 +74,7 @@ static int process(jack_nframes_t nframes, void *arg) {
 	uint16_t qfield;
 
 	jack_default_audio_sample_t *buffers[2];
+	jack_default_audio_sample_t *input_buffers[2];
 
 	group_t *g;
 	file_t *f;
@@ -85,6 +84,9 @@ static int process(jack_nframes_t nframes, void *arg) {
 	group_count = state.group_count;
 
 	rate = jack_get_sample_rate(state.client);
+
+	input_buffers[0] = jack_port_get_buffer(inport_l, nframes);
+	input_buffers[1] = jack_port_get_buffer(inport_r, nframes);
 
 	/* initialize each group's output buffers and zero them */
 	for( i = 0; i < group_count; i++ ) {
@@ -140,8 +142,11 @@ static int process(jack_nframes_t nframes, void *arg) {
 			buffers[0] = g->output_buffer_l + nframes_offset;
 			buffers[1] = g->output_buffer_r + nframes_offset;
 
+			input_buffers[0] = input_buffers[0] + nframes_offset;
+			input_buffers[1] = input_buffers[1] + nframes_offset;
+
 			if( f->process_cb )
-				f->process_cb(f, buffers, 2, nframes_left, rate);
+				f->process_cb(f, buffers, 2, input_buffers, 2, nframes_left, rate);
 
 		}
 
@@ -155,12 +160,6 @@ static int process(jack_nframes_t nframes, void *arg) {
 
 	memcpy(out_l, in_l, sizeof(jack_default_audio_sample_t) * nframes_offset);
 	memcpy(out_r, in_r, sizeof(jack_default_audio_sample_t) * nframes_offset);
-
-	buffers[0] = jack_port_get_buffer(inport_l, nframes_offset);
-	buffers[1] = jack_port_get_buffer(inport_r, nframes_offset);
-
-	f = state.files->head.next->data;
-	f->record_cb(f, buffers, 2, total_frames, rate, input_buffer, 16 * state.frames_per_beat);
 
 	return 0;
 }
@@ -228,12 +227,6 @@ int r_jack_activate() {
 		jack_connect(client, jack_port_name(g->outport_l), jack_port_name(group_mix_inport_l));
 		jack_connect(client, jack_port_name(g->outport_r), jack_port_name(group_mix_inport_r));
 	}
-
-
-	int buffer_beat_length = 16;
-	sf_count_t input_buffer_length = buffer_beat_length * state.frames_per_beat;
-        printf("max loop length %lld (%d beats @ %f bpm)\n", input_buffer_length, buffer_beat_length, state.bpm);
-	input_buffer = ringbuffer_init(input_buffer_length * 2); /* woo, stereo! */
 
 	return 0;
 }
