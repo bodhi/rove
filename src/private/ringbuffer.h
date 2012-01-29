@@ -1,5 +1,5 @@
-#include "types.h"
-//typedef long long int sf_count_t;
+//#include "types.h"
+typedef long long int sf_count_t;
 
 // ----------------------------------------
 // Ringbuffer
@@ -24,5 +24,6 @@ sf_count_t ringbuffer_read_available(ringbuffer *);
 void ringbuffer_read_advance(ringbuffer *buffer, sf_count_t c);
 void ringbuffer_read_seek(ringbuffer *, sf_count_t c);
 void ringbuffer_read_narrow(ringbuffer *, sf_count_t start, sf_count_t end);
+float ringbuffer_read_one(ringbuffer *);
 
 void ringbuffer_delete(ringbuffer *buffer);

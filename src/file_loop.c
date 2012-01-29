@@ -31,6 +31,8 @@
 #include "group.h"
 #include "rmonome.h"
 #include "file.h"
+#include "ringbuffer.h"
+#include "resampler.h"
 
 #define FILE_T(x) ((file_t *) x)
 
@@ -71,54 +73,29 @@ static void calculate_monome_pos(sf_count_t length, sf_count_t position, uint_t 
 
 static void file_record(file_t *self, jack_default_audio_sample_t **buffers, int channels, jack_nframes_t nframes, jack_nframes_t sample_rate) {
 	self->sample_rate = sample_rate;
-	self->length = self->file_length = self->loop * state.frames_per_beat * channels;
+	self->length = self->file_length = self->loop * state.frames_per_beat;
 	self->speed = -1;
 
-	printf("recording %d frames @ %llu!\n", nframes, scratch_buffer->write_head);
+//	printf("recording %d frames @ %llu\n", nframes, self->scratch->write_position_fn(self->scratch));
 
-	sf_count_t i;
-	jack_default_audio_sample_t buffer[2];
-	for (i = 0; i < nframes; ++i) {
-		buffer[0] = buffers[0][i];
-		buffer[1] = buffers[1][i];
-		ringbuffer_write(scratch_buffer, buffer, 2);
-		if ((scratch_buffer->write_head < 2) || (scratch_buffer->write_head == self->length)) {
-			printf("finished writing @ %llu\n", scratch_buffer->write_head);
-		        file_change_status(self, FILE_STATUS_INACTIVE);
-			break; // after writing 2 bytes, write_head >= 2 unless we've wrapped around
-		}
+	self->scratch->read_fn(self->scratch, buffers, channels, nframes, sample_rate);
+
+	if (self->scratch->write_position_fn(self->scratch) < 1) {
+//	  printf("finished writing @ %llu %llu %llu\n", self->scratch->write_position_fn(self->scratch), self->length, self->file_length);
+		file_change_status(self, FILE_STATUS_INACTIVE);
+		self->source = self->scratch;
 	}
 }
 
 static void file_process(file_t *self, jack_default_audio_sample_t **buffers, int channels, jack_default_audio_sample_t **input_buffers, int input_channels, jack_nframes_t nframes, jack_nframes_t sample_rate) {
-  sf_count_t i;
-
   if (self->status == FILE_STATUS_RECORDING) {
-	  file_record(self, input_buffers, input_channels, nframes, sample_rate);
+    file_record(self, input_buffers, input_channels, nframes, sample_rate);
   } else {
-#ifdef HAVE_SRC
-	float b[2];
 	double speed;
 
 	speed = (sample_rate / (double) self->sample_rate) * (1 / self->speed);
 
-	if(self->speed > 0) {
-		for( i = 0; i < nframes; i++ ) {
-                  resampler_read(self->resampler, self->out_frame, 1, speed);
-			buffers[0][i] += self->out_frame[0] * self->volume;
-			buffers[1][i] += self->out_frame[1] * self->volume;
-		}
-	} else {
-#endif
-		for( i = 0; i < nframes; i++ ) {
-//                                timestretcher_read(self->timestretcher, self->out_frame, 1, speed);
-			ringbuffer_read(self->resampler->source, b, 2);
-			buffers[0][i] += b[0]   * self->volume;
-			buffers[1][i] += b[1]   * self->volume;
-		}
-#ifdef HAVE_SRC
-	}
-#endif
+        self->source->write_fn(self->source, buffers, channels, nframes, sample_rate, speed, self->volume);
   }
 }
 
@@ -172,7 +149,7 @@ static void file_monome_out(file_t *self, r_monome_t *monome) {
 
 static void file_monome_in(r_monome_t *monome, uint_t x, uint_t y, uint_t type, void *user_arg) {
 	file_t *self = FILE_T(user_arg);
-	unsigned int cols, x_frame, i;
+	unsigned int cols, x_frame;
 
 	r_monome_position_t pos = {x, y - self->y};
 
@@ -200,12 +177,8 @@ static void file_monome_in(r_monome_t *monome, uint_t x, uint_t y, uint_t type, 
             self->looping = 1;
             self->setting_loop = 0;
             self->loop_end = x_frame;
+            self->source->narrow_fn(self->source, self->loop_start, self->loop_end);
             printf("loop from %d to %d (%d)\n", self->loop_start, self->loop_end, self->loop_end - self->loop_start);
-            for (i = 0; i < self->channels; ++i) {
-              ringbuffer_read_narrow(self->deinterleaved_data[i], self->loop_start, self->loop_end);
-            }
-            resampler_narrow(self->resampler, self->loop_start, self->loop_end);
-//            timestretcher_narrow(self->timestretcher, self->loop_start, self->loop_end);
           }
           break;
 	case MONOME_BUTTON_UP:
@@ -227,22 +200,17 @@ static void file_init(file_t *self) {
         self->looping = 0;
         self->loop_start = 0;
         self->loop_end = 0;
+
+	self->scratch = 0;
 }
 
 void file_free(file_t *self) {
-  int i;
-  for (i = 0; i < self->channels; ++i) {
-    ringbuffer_delete(self->deinterleaved_data[i]);
-  }
-  free(self->deinterleaved_data);
-  free(self->in_frame);
-  free(self->out_frame);
 	free(self->file_data);
+	// Need to free source+scratch
 	free(self);
 }
 
 file_t *file_new_from_path(const char *path) {
-        int i, j;
 	file_t *self;
 	SF_INFO info;
 	SNDFILE *snd;
@@ -269,10 +237,10 @@ file_t *file_new_from_path(const char *path) {
 		self = NULL;
 	}
 
-          self->resampler = resampler_init(self->file_data, info.frames, info.channels);
+	self->source = resampler_data_source(self->file_data, info.frames, info.channels);
 
-          if (0 && info.samplerate != 44100) {
-          printf("resampling\n");
+	if (0 && info.samplerate != 44100) {
+	  printf("resampling\n");
           SRC_DATA data;
           data.data_in = self->file_data;
           data.input_frames = info.frames;
@@ -285,26 +253,9 @@ file_t *file_new_from_path(const char *path) {
           self->length = self->file_length = data.output_frames;
           self->sample_rate = 44100;
           free(data.data_out);
-          } else {
+	} else {
 //          self->timestretcher = timestretcher_init(self->file_data, info.frames, info.channels, 44100);
-          }
-
-        self->in_frame = calloc(sizeof(float), info.channels);
-        self->out_frame = calloc(sizeof(float), info.channels);
-	self->deinterleaved_data   = calloc(sizeof(ringbuffer *), info.channels);
-        self->process_output = calloc(sizeof(float *), info.channels);
-
-       for (j = 0; j < info.channels; ++j) {
-         self->deinterleaved_data[j]   = ringbuffer_init(info.frames);
-         self->process_output[j] = calloc(sizeof(float), 512);
-       }
-
-        for (i = 0; i < info.frames; ++i) {
-          for (j = 0; j < info.channels; ++j) {
-            float *src = self->file_data + i * info.channels + j;
-            ringbuffer_write(self->deinterleaved_data[j], src, 1);
-          }
-        }
+	}
 
 	sf_close(snd);
 
@@ -323,8 +274,6 @@ file_t *file_new_from_path(const char *path) {
 }
 
 void file_set_play_pos(file_t *self, sf_count_t p) {
-                 int i;
-
 	if( p >= self->file_length )
 		p %= self->file_length;
 
@@ -339,13 +288,8 @@ void file_set_play_pos(file_t *self, sf_count_t p) {
         } else
           self->play_offset = p;
 
-        printf("setting play_pos to %llu, recording? %d\n", self->play_offset, state.recording);
-        for (i = 0; i < self->channels; ++i) {
-          ringbuffer_read_seek(self->deinterleaved_data[i], self->play_offset);
-        }
-        resampler_seek(self->resampler, self->play_offset);
-	self->resampler->source->write_head = self->play_offset;
-//        timestretcher_seek(self->timestretcher, self->play_offset);
+//        printf("setting play_pos to %llu, recording? %d\n", self->play_offset, state.recording);
+	self->source->seek_fn(self->source, self->play_offset);
 }
 
 void file_inc_play_pos(file_t *self, sf_count_t delta) {
@@ -356,10 +300,14 @@ void file_inc_play_pos(file_t *self, sf_count_t delta) {
 }
 
 sf_count_t file_get_play_pos(file_t *self) {
-  //return timestretcher_position(self->timestretcher);
-	return self->status == FILE_STATUS_ACTIVE ?
-		resampler_position(self->resampler) :
-		self->resampler->source->write_head/2; /* 2 channels, interleaved */
+	sf_count_t pos;
+	if (self->status == FILE_STATUS_ACTIVE) {
+                pos = self->source->position_fn(self->source);
+	} else {
+                pos = self->scratch->write_position_fn(self->source);
+	}
+
+	return pos;
 }
 
 void file_change_status(file_t *self, file_status_t nstatus) {
@@ -408,12 +356,7 @@ void file_seek(file_t *self) {
 	file_change_status(self, state.recording ? FILE_STATUS_RECORDING : FILE_STATUS_ACTIVE);
 	file_set_play_pos(self, self->new_offset);
 
-//	int i;
-//	for (i = 0; i < self->channels; ++i) {
-//	ringbuffer_read_narrow(self->deinterleaved_data[i], 0, self->length);
-//}
-	resampler_narrow(self->resampler, 0, self->length);
-//            timestretcher_narrow(self->timestretcher, 0, self->length);
+	self->source->narrow_fn(self->source, 0, self->length);
 
 }
 

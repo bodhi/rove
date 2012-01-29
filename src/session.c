@@ -280,6 +280,15 @@ void session_activate(session_t *self) {
 	state.active_session = self;
 
 	recalculate_bpm_variables();
+
+	list_member_t *m;
+	file_t *f;
+	list_foreach(state.files, m, f) {
+		if (!f->scratch) {
+			printf("creating scratch buffers of %d\n", f->loop * state.frames_per_beat);
+			f->scratch = simple_data_source(f->channels, f->loop * state.frames_per_beat);
+		}
+	}
 }
 
 session_t *session_new(const char *path) {

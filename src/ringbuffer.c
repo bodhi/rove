@@ -1,5 +1,5 @@
-#include "types.h"
-//#include "ringbuffer.h"
+//#include "types.h"
+#include "ringbuffer.h"
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -114,6 +114,11 @@ int ringbuffer_read(ringbuffer *buffer, float *out, sf_count_t c) {
   return 0;
 }
 
+float ringbuffer_read_one(ringbuffer *buffer) {
+  float next;
+  ringbuffer_read(buffer, &next, 1);
+  return next;
+}
 
 void ringbuffer_read_seek(ringbuffer *buffer, sf_count_t i) {
   buffer->read_head = i;

@@ -75,6 +75,7 @@ static int process(jack_nframes_t nframes, void *arg) {
 
 	jack_default_audio_sample_t *buffers[2];
 	jack_default_audio_sample_t *input_buffers[2];
+	jack_default_audio_sample_t *offset_input_buffers[2];
 
 	group_t *g;
 	file_t *f;
@@ -142,11 +143,11 @@ static int process(jack_nframes_t nframes, void *arg) {
 			buffers[0] = g->output_buffer_l + nframes_offset;
 			buffers[1] = g->output_buffer_r + nframes_offset;
 
-			input_buffers[0] = input_buffers[0] + nframes_offset;
-			input_buffers[1] = input_buffers[1] + nframes_offset;
+			offset_input_buffers[0] = input_buffers[0] + nframes_offset;
+			offset_input_buffers[1] = input_buffers[1] + nframes_offset;
 
 			if( f->process_cb )
-				f->process_cb(f, buffers, 2, input_buffers, 2, nframes_left, rate);
+			  f->process_cb(f, buffers, 2, offset_input_buffers, 2, nframes_left, rate);
 
 		}
 

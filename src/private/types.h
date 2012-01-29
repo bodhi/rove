@@ -32,9 +32,8 @@
 
 
 #include "list.h"
-#include "ringbuffer.h"
-#include "resampler.h"
 //#include "timestretcher.h"
+#include "data_source.h"
 
 #define HANDLER_T(x) ((r_monome_handler_t *) x)
 #define SESSION_T(x) ((session_t *) x)
@@ -84,7 +83,7 @@ typedef struct state state_t;
 
 typedef void (*r_monome_callback_t)(r_monome_t *, uint_t x, uint_t y, uint_t event_type, void *user_arg);
 
-typedef void (*process_callback_t)(file_t *self, jack_default_audio_sample_t **buffers, int channels, jack_default_audio_sample_t **input_buffers, int input_channels, jack_nframes_t nframes, jack_nframes_t sample_rate);
+		      typedef void (*process_callback_t)(file_t *self, jack_default_audio_sample_t **buffers, int channels, jack_default_audio_sample_t **input_buffers, int input_channels, jack_nframes_t nframes, jack_nframes_t sample_rate);
 typedef void (*quantize_callback_t)(file_t *self);
 typedef void (*r_monome_output_callback_t)(file_t *self, r_monome_t *);
 
@@ -147,15 +146,16 @@ struct file {
 #endif
 	double speed;
 
-	ringbuffer **deinterleaved_data;
-        float **process_output;
+//	ringbuffer **deinterleaved_data;
+//        float **process_output;
 
-        resampler *resampler;
+//        resampler *resampler;
 //        timestretcher *timestretcher;
+//	ringbuffer **scratch_buffers;
+        data_source_t *source;
+        data_source_t *scratch;
 
 	float *file_data;
-	float *out_frame;
-	float *in_frame;
 
 	int y;
 	int row_span;

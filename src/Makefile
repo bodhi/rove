@@ -15,6 +15,7 @@ OBJS += file_loop.o
 OBJS += ringbuffer.o
 OBJS += resampler.o
 #OBJS += timestretcher.o
+OBJS += data_source.o
 
 all: $(TARGETS)
 
