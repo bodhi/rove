@@ -62,6 +62,10 @@ sf_count_t resampler_position(data_source_t *d) {
   return r->source->read_head/r->channels;
 }
 
+sf_count_t resampler_write_position(data_source_t *d) {
+        return 0; // FIXME unimplemented!
+}
+
 void resampler_seek(data_source_t *d, sf_count_t frame) {
   resampler *r = resampler_d(d);
   ringbuffer_read_seek(r->source, frame * r->channels);
@@ -79,6 +83,7 @@ data_source_t *resampler_data_source(float *interleaved_source, sf_count_t frame
   source->seek_fn = resampler_seek;
   source->narrow_fn = resampler_narrow;
   source->position_fn = resampler_position;
+  source->write_position_fn = resampler_write_position;
 
   source->data = resampler_init(interleaved_source, frames, channels);
 

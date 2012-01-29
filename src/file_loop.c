@@ -300,11 +300,13 @@ void file_inc_play_pos(file_t *self, sf_count_t delta) {
 }
 
 sf_count_t file_get_play_pos(file_t *self) {
-	sf_count_t pos;
+	sf_count_t pos = 0;
 	if (self->status == FILE_STATUS_ACTIVE) {
                 pos = self->source->position_fn(self->source);
-	} else {
-                pos = self->scratch->write_position_fn(self->source);
+
+		// THIS IS BROKEN, CAUSES A SEGFAULT
+//	} else if (self->status == FILE_STATUS_RECORDING) {
+//                pos = self->scratch->write_position_fn(self->source);
 	}
 
 	return pos;
